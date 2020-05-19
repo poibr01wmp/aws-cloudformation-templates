@@ -1,0 +1,2027 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+# This CloudFormation template deploys the EZWI VPC.  Specifically:
+# It deploys a the VPC with 4 subnets (2 public, 2 private) across 2 Availability Zones
+# The NAT Gateway provides egress for private subnets
+
+# Mappings are used to assign the appropriate ami's to each individual region for
+# each individual service host(s) 
+# It will be necessary to take images of baseline hosts without activity to properly
+# deploy into many stacks.  Currently ETL is commented out as it was image while active,
+# resulting in emails being sent out when launched.o
+#
+# To add regions, build ami's in US-East-1, US-West-2, or EU-Central-1
+# for each of the services to be be supported (radius, splitter, etl, etc...)
+# Copy the AMI's to the new Region to be supported and populate that 
+# region/service below with the new AMI ID. Save, and load the template to Cloud Formation
+# service in the region you wish to deploy in.
+#
+# bpoissant@wmp.com 05/15/2020
+#
+Mappings:
+  RegionMap: 
+    us-east-1:
+      asa: "ami-062ad2c4e3df8be30"
+      bastion: "ami-0541b5f767a58852e"
+      batch: "ami-01dce63451847fb13"
+      etl: "ami-001e62b420db4ac09"
+      ipass: "ami-0cd58b003ad7382ad"
+      mediation: "ami-0fe32531ef82f5a2c"
+      nagios: "ami-01b96a0d3eaf52cd5"
+      pulse: "ami-096841ed9686f0414"
+      radprod: "ami-01cc295642ff4d065"
+      splitter: "ami-047f1749fbeda5ad4"
+      webtrack: "ami-091570acaeb972b26"
+    us-east-2:
+      asa: ami-TBD      
+      bastion: ami-TBD
+      batch: ami-TBD
+      etl: ami-TBD
+      ipass: ami-TBD
+      mediation: ami-TBD
+      nagios: ami-TBD
+      pulse: ami-TBD
+      radprod: ami-TBD
+      splitter: ami-TBD
+      webtrack: ami-TBD
+    us-west-1:
+      asa: ami-TBD      
+      bastion: ami-TBD
+      batch: ami-TBD
+      etl: ami-TBD
+      ipass: ami-TBD
+      mediation: ami-TBD
+      nagios: ami-TBD
+      pulse: ami-TBD
+      radprod: ami-TBD
+      splitter: ami-TBD
+      webtrack: ami-TBD
+    us-west-2:
+      asa: "ami-047c4a05669a0da32"
+      bastion: "ami-0b7bd5b0a5df4f587"
+      batch: "ami-0dc2fc347b5e56670"
+      etl: "ami-09630182d4f953da8"
+      ipass: "ami-0561a7ff0030e05db"
+      mediation: "ami-00bf715b3fce35d41"
+      nagios: "ami-0d712002f1d92e6f9"
+      pulse: "ami-0648bac27c51101de"
+      radprod: "ami-0fbbb6f8aa4617f6d"
+      splitter: "ami-08105a2e2527da934"
+      webtrack: "ami-040a436763ca24426"
+    eu-central-1:
+      asa: "ami-04bb541104e5f53fe"
+      bastion: "ami-029ced9c44178ec79"
+      batch: "ami-07a896ea25c4254d7"
+      etl: "ami-02fd1d7927ba5f26d"
+      ipass: "ami-05879a72bc27a75fe"  
+      mediation: "ami-00131050cff388057"
+      nagios: "ami-0e413dd18f237acfe"
+      pulse: "ami-049e4e990ef3c8222"
+      radprod: "ami-0315ee23041a60a18"
+      splitter: "ami-0f478af56981d67ab"
+      webtrack: "ami-043812064229f7ae3"
+    eu-west-1:
+      asa: ami-TBD
+      etl: ami-TBD
+      ipass: ami-TBD
+      mediation: ami-TBD
+      nagios: ami-TBD
+      pulse: ami-TBD
+      radprod: ami-TBD
+      splitter: ami-TBD
+      webtrack: ami-TBD
+    eu-west-2:
+      asa: ami-TBD
+      etl: ami-TBD
+      ipass: ami-TBD
+      mediation: ami-TBD
+      nagios: ami-TBD
+      pulse: ami-TBD
+      radprod: ami-TBD
+      splitter: ami-TBD
+      webtrack: ami-TBD
+    eu-west-3:
+      asa: ami-TBD
+      etl: ami-TBD
+      ipass: ami-TBD
+      mediation: ami-TBD
+      nagios: ami-TBD
+      pulse: ami-TBD
+      radprod: ami-TBD
+      splitter: ami-TBD
+      webtrack: ami-TBD 
+Parameters:
+  ec2KeyPair:
+    Description: "Please enter the name of the existing Key Pair fromt thie Region to use for all host deployment."
+    Type: String
+        
+  typeRadProd:
+    Description: "Select the Radprod host Instance Type? [i3.large]"
+    Type: String
+    Default: i3.large
+    AllowedValues: 
+        - t3.small
+        - c5.large
+        - c5.xlarge
+        - i3.large
+        - i3.xlarge
+        - m5a.large
+        - m5a.xlarge
+
+  typeSplitter:
+    Description: "Select the Splitter host Instance Type? [i3.large]"
+    Type: String
+    Default: i3.large
+    AllowedValues: 
+        - t3.small
+        - c5.large
+        - c5.xlarge
+        - i3.large
+        - i3.xlarge
+        - m5a.large
+        - m5a.xlarge
+  
+  typeMediation:
+    Description: "Select the Mediation host Instance Type? [i3.large]"
+    Type: String
+    Default: i3.large
+    AllowedValues: 
+        - t3.small
+        - c5.large
+        - c5.xlarge
+        - i3.large
+        - i3.xlarge
+        - m5a.large
+        - m5a.xlarge
+        
+  typeBatch:
+    Description: "Select the Batch host Instance Type? [i3.large]"
+    Type: String
+    Default: i3.large
+    AllowedValues: 
+        - t3.small
+        - c5.large
+        - c5.xlarge
+        - i3.large
+        - i3.xlarge
+        - m5a.large
+        - m5a.xlarge
+
+  typeETL:
+    Description: "Select the ETL host Instance Type? [i3.large]"
+    Type: String
+    Default: i3.large
+    AllowedValues: 
+        - t3.small
+        - c5.large
+        - c5.xlarge
+        - i3.large
+        - i3.xlarge
+        - m5a.large
+        - m5a.xlarge
+        
+Resources:
+# Deploy Bastion Server
+  instancei02d897013bdb0ce58:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - bastion
+      InstanceType: t3.small
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-bastion01-1c
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PubSn01
+        GroupSet:
+        - Ref: sgezwibastion
+        AssociatePublicIpAddress: 'true'
+
+# Deploy ASA1
+  instancei0ceaad5693706d0ec:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - asa
+      InstanceType: c4.large
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Name
+        Value: az1-asa-gw01-1c
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: ezwi-asa-1d-mgmt-new
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PubSn01
+        GroupSet:
+        - Ref: sgezwiciscoasasg01
+
+# Deploy ASA2
+  instancei08d3850e671be3532:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - asa
+      InstanceType: c4.large
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Name
+        Value: az2-asa-gw01-1d
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: ezwi-asa-1d-mgmt-new
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PubSn01
+        GroupSet:
+        - Ref: sgezwiciscoasasg01
+   
+# Deploy PulseLB 1
+  instancei0678231163d67d7bb:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - pulse
+      InstanceType: c5.large
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Name
+        Value: az1-pulselb01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipulsesg01     
+
+# Deploy PulseLB 2
+  instancei00204f381aa0e22d3:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - pulse
+      InstanceType: c5.large
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Name
+        Value: az2-pulselb01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwipulsesg01  
+        
+# Deploy iPass 1
+  instancei024f034ec0ebe8cad:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - ipass
+      InstanceType: t2.large
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Name
+        Value: az1-ipass01
+      - Key: Service
+        Value: ipass roamserver
+      - Key: Environment
+        Value: Prod
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PubSn01
+        GroupSet:
+        - Ref: sgezwiasainside
+
+# Deploy iPass 2
+  az2ipass1:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - ipass
+      InstanceType: t2.large
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Name
+        Value: az2-ipass01
+      - Key: Service
+        Value: ipass roamserver
+      - Key: Environment
+        Value: Prod
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PubSn01
+        GroupSet:
+        - Ref: sgezwiasainside
+
+# az1-radprod01
+  az1radProd01:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-radprod01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+        
+# az1-radprod02
+  az1radProd02:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-radprod02
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az1-radprod03
+  az1radProd03:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod      
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-radprod03
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az1-radprod04
+  az1radProd04:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-radprod04
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az1-radprod05
+  az1radProd05:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-radprod05
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az1-radprod06
+  az1radProd06:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-radprod06
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az2-radprod01
+  az2radProd01:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az2-radprod01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az2-radprod02
+  az2radProd02:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az2-radprod02
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01  
+
+# az2-radprod03
+  az2radProd03:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az2-radprod03
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01        
+
+# az2-radprod04
+  az2radProd04:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az2-radprod04
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01  
+
+# az2-radprod05
+  az2radProd05:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az2-radprod05
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+
+# az2-radprod06
+  az2radProd06:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - radprod
+      InstanceType: !Ref typeRadProd
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az2-radprod06
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ2PriSn01
+        GroupSet:
+        - Ref: sgezwiradiussg01
+  
+# az1-splitter01       
+  az1splitter01:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - splitter
+      InstanceType: !Ref typeSplitter
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-splitter01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+        
+# az1-splitter02      
+  az1splitter02:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - splitter
+      InstanceType: !Ref typeSplitter
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-splitter02
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-splitter03      
+  az1splitter03:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - splitter
+      InstanceType: !Ref typeSplitter
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-splitter03
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-splitter04     
+  az1splitter04:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - splitter
+      InstanceType: !Ref typeSplitter
+      KeyName: !Ref ec2KeyPair
+      Monitoring: 'false'
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-splitter04
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2     
+
+# az1-mediation01
+  az1mediation01:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation02
+  az1mediation02:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation02
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation03
+  az1mediation03:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation03
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+        
+# az1-mediation04
+  az1mediation01:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation04
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation05
+  az1mediation05:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation05
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation06
+  az1mediation06:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation06
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation07
+  az1mediation07:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation07
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation08
+  az1mediation08:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation08
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation09
+  az1mediation09:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation09
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation10
+  az1mediation10:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation10
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation11
+  az1mediation11:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation11
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-mediation12
+  az1mediation12:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation12
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+        
+# az1-mediation13
+  az1mediation13:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation13
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+        
+# az1-mediation14
+  az1mediation14:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation14
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2        
+        
+# az1-mediation15
+  az1mediation15:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation15
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+        
+# az1-mediation16
+  az1mediation16:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      EbsOptimized: 'true'
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - mediation
+      InstanceType: !Ref typeMediation
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags:
+      - Key: Environment
+        Value: Prod 1
+      - Key: Name
+        Value: az1-mediation16
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+
+# az1-batch01
+  az1batch01:
+    Type: AWS::EC2::Instance
+    Properties:
+      DisableApiTermination: 'false'
+      InstanceInitiatedShutdownBehavior: stop
+      ImageId: !FindInMap 
+        - RegionMap
+        - !Ref 'AWS::Region'
+        - batch
+      InstanceType: !Ref typeBatch
+      KeyName: !Ref ec2KeyPair
+      Monitoring: false
+      Tags: 
+      - Key: Environment
+        Value: Prod
+      - Key: Name
+        Value: az1-batch01
+      NetworkInterfaces:
+      - DeleteOnTermination: 'true'
+        Description: Primary network interface
+        DeviceIndex: 0
+        SubnetId:
+          Ref: AZ1PriSn01
+        GroupSet:
+        - Ref: sgezwipriec2
+# Since all images where taken while active ETL had active jobs
+# which resulted in a flurry of emails.  A new AMI is required
+# so rem'd out this section until a new AMI is entered above.
+#
+# az1-etl01
+#  az1etl01:
+#    Type: AWS::EC2::Instance
+#    Properties:
+#      DisableApiTermination: 'false'
+#      InstanceInitiatedShutdownBehavior: stop
+#      ImageId: !FindInMap 
+#        - RegionMap
+#        - !Ref 'AWS::Region'
+#        - mediation
+#      InstanceType: !Ref typeBatch
+#      KeyName: !Ref ec2KeyPair
+#      Monitoring: false
+#      Tags: 
+#      - Key: Environment
+#        Value: Prod
+#      - Key: Name
+#        Value: az1-batch01
+#      NetworkInterfaces:
+#      - DeleteOnTermination: 'true'
+#        Description: Primary network interface
+#        DeviceIndex: 0
+#        SubnetId:
+#          Ref: AZ1PriSn01
+#        GroupSet:
+#        - Ref: sgezwipriec2
+        
+# EZWI VPC:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value:  !Join ['', [!Ref "AWS::StackName", "-VPC" ]]
+
+# EZWI Gateways:
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    # Attach IGW to the EZWI VPC once both are created:
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+# EZWI subnets, 4 public and 2 private:
+  AZ1PubSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.10.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list        
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-A
+  AZ2PubSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.20.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-B
+  AZ1PriSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.50.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-A
+  AZ1PriSn02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.70.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-C
+  AZ2PriSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.60.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-B
+  AZ2PriSn02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.80.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-D
+        
+# EZWI Route Tables and Entry records:
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Public
+  PublicRoute1:   # Public route table has direct routing to IGW:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      
+# Private route table:
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private
+  # Private route table can access web via NAT      
+  PrivateRoute1:            
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      # Route traffic through the NAT Gateway:
+      NatGatewayId: !Ref NATGateway
+
+# Attach the public subnets to public route tables, 
+  # and attach the private subnets to private route tables:    
+  AZ1PubSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ1PubSn01
+      RouteTableId: !Ref PublicRouteTable
+  AZ2PubSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ2PubSn01
+      RouteTableId: !Ref PublicRouteTable
+  AZ1PriSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ1PriSn01
+      RouteTableId: !Ref PrivateRouteTable
+  AZ2PriSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ2PriSn01
+      RouteTableId: !Ref PrivateRouteTable
+  AZ1PriSn02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ1PriSn02
+      RouteTableId: !Ref PrivateRouteTable
+  AZ2PriSn02RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ2PriSn02
+      RouteTableId: !Ref PrivateRouteTable
+
+# Dedicated NAT Gateway: 
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref AZ1PubSn01
+      Tags: 
+      - Key: Name
+        Value: !Sub NAT-${AWS::StackName}
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+  AZ2PubSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.20.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list 
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-B
+  AZ1PriSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.50.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list 
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-A
+  AZ2PriSn01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.60.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list 
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-B
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Public
+  PublicRoute1:   # Public route table has direct routing to IGW:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private
+  PrivateRoute1:            # Private route table can access web via NAT (created below)
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref AZ1PubSn01
+      Tags:
+      - Key: Name
+        Value: !Sub NAT-${AWS::StackName}
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+# Attach the private subnets to private route tables,
+  # and attach the private subnets to private route tables:   
+  AZ1PubSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ1PubSn01
+      RouteTableId: !Ref PublicRouteTable
+  AZ2PubSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ2PubSn01
+      RouteTableId: !Ref PublicRouteTable
+  AZ1PriSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ1PriSn01
+      RouteTableId: !Ref PrivateRouteTable
+  AZ2PriSn01RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AZ2PriSn01
+      RouteTableId: !Ref PrivateRouteTable
+  # Build out Security Groups for Hosts
+  sgezwiradiussg01:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi Radprod Security Group"
+      VpcId: !Ref VPC
+  sgezwibastion:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi Bastion Security Group"
+      VpcId: !Ref VPC
+  sgezwidbsg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi DB (Aurora) Security Group"
+      VpcId: !Ref VPC
+  sgezwiasaoutside:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi ASA Outside Security Group"
+      VpcId: !Ref VPC
+  sgezwiasainside:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi ASA Inside Security Group"
+      VpcId: !Ref VPC
+  sgezwipulseinside:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi Pulse Inside Security Group"
+      VpcId: !Ref VPC
+  sgezwipulsesg01:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi Pulse Security Group"
+      VpcId: !Ref VPC
+  sgezwipriec2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi EC2 Host Security Group"
+      VpcId: !Ref VPC
+  sgezwiciscoasasg01:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi CISCO ASA Security Group"
+      VpcId: !Ref VPC
+  sgezwiwebtracksg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "EzWi Webtrack Security Group"
+      VpcId: !Ref VPC
+  ingress1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: tcp
+      FromPort: 2083
+      ToPort: 2083
+      CidrIp: 10.1.0.0/8
+  ingress2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 10.1.0.0/8
+  ingress3:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: tcp
+      FromPort: 1813
+      ToPort: 1813
+      CidrIp: 0.0.0.0/0
+  ingress4:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: tcp
+      FromPort: 1812
+      ToPort: 1812
+      CidrIp: 0.0.0.0/0
+  ingress5:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      CidrIp: 10.1.0.0/8
+  ingress8:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      CidrIp: 10.1.0.0/8
+  ingress10:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: icmp
+      FromPort: -1
+      ToPort: -1
+      CidrIp: 10.1.0.0/8
+  ingress11:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwibastion
+      IpProtocol: -1
+      CidrIp: 71.40.23.254/32  
+  ingress16:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwidbsg
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      CidrIp: 10.1.0.0/8  
+  ingress21:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiasaoutside
+      IpProtocol: tcp
+      FromPort: 2083
+      ToPort: 2083
+      CidrIp: 0.0.0.0/0  
+  ingress22:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiasaoutside
+      IpProtocol: udp
+      FromPort: 4500
+      ToPort: 4500
+      CidrIp: 0.0.0.0/0  
+  ingress23:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiasaoutside
+      IpProtocol: udp
+      FromPort: 500
+      ToPort: 500
+      CidrIp: 0.0.0.0/0  
+  ingress24:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiasaoutside
+      IpProtocol: tcp
+      FromPort: 577
+      ToPort: 577
+      CidrIp: 0.0.0.0/0  
+  ingress25:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiasainside
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0  
+  ingress26:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulseinside
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0  
+  ingress27:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 11000
+      ToPort: 11000
+      CidrIp: 0.0.0.0/0  
+  ingress28:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 2083
+      ToPort: 2083
+      CidrIp: 0.0.0.0/0  
+  ingress29:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 8083
+      ToPort: 8083
+      CidrIp: 0.0.0.0/0  
+  ingress30:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 9070
+      ToPort: 9070
+      CidrIp: 0.0.0.0/0  
+  ingress31:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 11007
+      ToPort: 11007
+      CidrIp: 0.0.0.0/0  
+  ingress32:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 8086
+      ToPort: 8086
+      CidrIp: 0.0.0.0/0    
+  ingress34:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 9090
+      ToPort: 9090
+      CidrIp: 10.1.0.0/8  
+  ingress35:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 11002
+      ToPort: 11002
+      CidrIp: 0.0.0.0/0  
+  ingress37:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: icmp
+      FromPort: -1
+      ToPort: -1
+      CidrIp: 10.1.0.0/8  
+  ingress39:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 10.254.0.0/16  
+  ingress40:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: udp
+      FromPort: 123
+      ToPort: 123
+      CidrIp: 0.0.0.0/0     
+  ingress41:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 9080
+      ToPort: 9080
+      CidrIp: 0.0.0.0/0  
+  ingress42:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 8092
+      ToPort: 8092
+      CidrIp: 0.0.0.0/0   
+  ingress44:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 10.0.0.0/8  
+  ingress46:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: udp
+      FromPort: 1812
+      ToPort: 1812
+      CidrIp: 0.0.0.0/0  
+  ingress47:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: udp
+      FromPort: 9080
+      ToPort: 9080
+      CidrIp: 0.0.0.0/0  
+  ingress48:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipriec2
+      IpProtocol: -1
+      CidrIp: 50.34.57.238/32  
+  ingress49:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipriec2
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 10.1.0.0/8  
+  ingress50:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipriec2
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      CidrIp: 10.1.0.0/8  
+  ingress52:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipriec2
+      IpProtocol: udp
+      FromPort: 161
+      ToPort: 161
+      CidrIp: 10.1.0.0/8   
+  ingress53:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwipriec2
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 199.168.146.0/26  
+  ingress54:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiciscoasasg01
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 162.255.174.0/24   
+  ingress55:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiciscoasasg01
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 162.255.172.0/26  
+  ingress56:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiciscoasasg01
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 199.168.146.0/26  
+  ingress57:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiciscoasasg01
+      IpProtocol: icmp
+      FromPort: -1
+      ToPort: -1
+      CidrIp: 199.168.146.0/26  
+  ingress58:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiwebtracksg
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0  
+  ingress59:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiwebtracksg
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 10.1.0.0/8  
+  ingress60:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref sgezwiwebtracksg
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+  egress1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwiradiussg01
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwibastion
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress3:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwidbsg
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwiasaoutside
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress5:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwiasainside
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress6:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwipulseinside
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress7:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwipulsesg01
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress8:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwipriec2
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress9:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwiciscoasasg01
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+  egress10:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref sgezwiwebtracksg
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+
+Outputs:
+  MyStacksRegion:
+    Value: !Ref "AWS::Region"
+    
+    
+
